@@ -13,7 +13,6 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: '24.14.0'
-
       - name: Build official ZCode
         run: |
           test "$(uname -m)" = aarch64
@@ -21,8 +20,35 @@ jobs:
           git clone --depth 1 --branch v3.17.2 https://github.com/zai-org/ZCode.git
           cd ZCode
           pnpm install --frozen-lockfile
-          pnpm build:zcode --base-url https://downloads.example.com/zcode/
 
+          pnpm --filter @zcode/model-option-map exec tsc --noCheck --rewriteRelativeImportExtensions
+          pnpm --filter @zcode/shared exec tsc --noCheck --allowJs --rewriteRelativeImportExtensions
+
+          test -s packages/model-option-map/dist/index.js
+          test -s packages/shared/dist/index.js
+
+          node --input-type=module <<'JS'
+          import { readFileSync, writeFileSync } from 'node:fs';
+
+          for (const name of ['model-option-map', 'shared']) {
+            const path = `packages/${name}/package.json`;
+            const pkg = JSON.parse(readFileSync(path, 'utf8'));
+
+            for (const field of ['exports', 'imports']) {
+              for (const [key, value] of Object.entries(pkg[field] ?? {})) {
+                if (typeof value === 'string' && value.startsWith('./src/')) {
+                  pkg[field][key] = value
+                    .replace('./src/', './dist/')
+                    .replace(/\.ts$/, '.js');
+                }
+              }
+            }
+
+            writeFileSync(path, JSON.stringify(pkg, null, 2) + '\n');
+          }
+          JS
+
+          pnpm build:zcode --base-url https://downloads.example.com/zcode/
       - uses: actions/upload-artifact@v4
         with:
           name: zcode-linux-arm64
