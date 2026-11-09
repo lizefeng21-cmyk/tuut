@@ -9,18 +9,28 @@ permissions:
 jobs:
   build:
     runs-on: ubuntu-24.04-arm
+
     steps:
       - uses: actions/setup-node@v4
         with:
           node-version: '24.14.0'
-      - name: Build official ZCode
+
+      - name: Clone ZCode and install dependencies
+        shell: bash
         run: |
           test "$(uname -m)" = aarch64
           npm install -g pnpm@10.33.2
           git clone --depth 1 --branch v3.17.2 https://github.com/zai-org/ZCode.git
           cd ZCode
-          pnpm install --frozen-lockfile
 
+          install_cpu="$(awk '/^Cpus_allowed_list:/ { split($2, cpus, /[-,]/); print cpus[1] }' /proc/self/status)"
+          test -n "$install_cpu"
+          taskset -c "$install_cpu" pnpm install --frozen-lockfile
+
+      - name: Build TUI workspace dependencies
+        shell: bash
+        working-directory: ZCode
+        run: |
           pnpm --filter @zcode/model-option-map exec tsc --noCheck --rewriteRelativeImportExtensions
           pnpm --filter @zcode/shared exec tsc --noCheck --allowJs --rewriteRelativeImportExtensions
 
@@ -48,11 +58,21 @@ jobs:
           }
           JS
 
-          pnpm build:zcode --base-url https://downloads.example.com/zcode/
-      - uses: actions/upload-artifact@v4
+      - name: Package ZCode CLI and TUI
+        shell: bash
+        working-directory: ZCode
+        run: pnpm build:zcode --base-url https://downloads.example.com/zcode/
+
+      - name: Verify archive checksum
+        shell: bash
+        working-directory: ZCode/dist/zcode/releases/3.17.2
+        run: sha256sum -c sha256.txt
+
+      - name: Upload offline installation package
+        uses: actions/upload-artifact@v4
         with:
           name: zcode-linux-arm64
           path: |
-            ZCode/dist/zcode/releases/*/zcode-*.tar.gz
-            ZCode/dist/zcode/releases/*/sha256.txt
+            ZCode/dist/zcode/releases/3.17.2/zcode-3.17.2.tar.gz
+            ZCode/dist/zcode/releases/3.17.2/sha256.txt
           if-no-files-found: error
