@@ -27,7 +27,15 @@ jobs:
           test -n "$install_cpu"
           taskset -c "$install_cpu" pnpm install --frozen-lockfile
 
-      - name: Build TUI workspace dependencies
+      - name: Build CLI, server and web
+        shell: bash
+        working-directory: ZCode
+        run: |
+          pnpm --filter '@zcode/cli...' build
+          pnpm --filter @zcode/server build
+          pnpm --filter @zcode/web build
+
+      - name: Prepare TUI runtime package entries
         shell: bash
         working-directory: ZCode
         run: |
@@ -61,12 +69,16 @@ jobs:
       - name: Package ZCode CLI and TUI
         shell: bash
         working-directory: ZCode
-        run: pnpm build:zcode --base-url https://downloads.example.com/zcode/
+        run: pnpm build:zcode --skip-build --base-url https://downloads.example.com/zcode/
 
-      - name: Verify archive checksum
+      - name: Verify archive and smoke-test CLI
         shell: bash
         working-directory: ZCode/dist/zcode/releases/3.17.2
-        run: sha256sum -c sha256.txt
+        run: |
+          sha256sum -c sha256.txt
+          smoke_dir="$(mktemp -d)"
+          tar -xzf zcode-3.17.2.tar.gz -C "$smoke_dir"
+          node "$smoke_dir/zcode/bin/zcode.mjs" doctor --json
 
       - name: Upload offline installation package
         uses: actions/upload-artifact@v4
